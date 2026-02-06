@@ -1,2 +1,11 @@
 .pio
 .venv
+
+# Keil uVision
+STC89C52/Objects/
+STC89C52/Listings/
+STC89C52/*.uvgui.*
+*.bak
+
+# PDFs
+*.pdf

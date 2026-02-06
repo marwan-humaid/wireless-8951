@@ -5,7 +5,9 @@
 STC89C52/Objects/
 STC89C52/Listings/
 STC89C52/*.uvgui.*
+STC89C52/build_log.txt
 *.bak
+*.LST
 
 # PDFs
 *.pdf

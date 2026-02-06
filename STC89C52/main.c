@@ -11,8 +11,8 @@ void delay_ms(unsigned int ms) {
 void main(void) {
     while (1) {
         LED = 0;       /* LED on  (active low) */
-        delay_ms(1000);
+        delay_ms(100);
         LED = 1;       /* LED off */
-        delay_ms(1000);
+        delay_ms(100);
     }
 }

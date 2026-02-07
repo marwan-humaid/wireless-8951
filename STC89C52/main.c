@@ -15,10 +15,9 @@ sbit MISO = P1^6;
 #include "lcd1602.h"
 #include "nrf24l01.h"
 
-char xdata tx_buf[32];
+char xdata rx_buf[32];
 char addr[] = {0x30, 0x30, 0x30, 0x30, 0x31};  /* "00001" */
-unsigned int tx_count;
-unsigned int ok_count;
+unsigned int rx_count;
 
 void delay_ms(unsigned int ms) {
     unsigned int i, j;
@@ -45,14 +44,13 @@ void lcd_write_dec4(unsigned int val) {
 void main(void) {
     unsigned char status;
     bool ok;
+    unsigned int counter;
 
     lcd_init();
     delay_ms(100);
 
-    /* Show init screen */
     lcd_set_cursor(0, 0);
     lcd_write_string("NRF24L01  Init..");
-
     delay_ms(100);
 
     if (!nrf_init()) {
@@ -63,14 +61,14 @@ void main(void) {
         while (1) ;
     }
 
-    /* Show init success + config */
+    /* Show init success + register verify */
     status = _nrf_get_reg(STATUS);
     lcd_set_cursor(0, 0);
     lcd_write_string("NRF OK  ST:0x");
     lcd_write_hex(status);
 
     lcd_set_cursor(1, 0);
-    lcd_write_string("CH:108  1Mbps   ");
+    lcd_write_string("RX CH:108 1Mbps ");
     delay_ms(1500);
 
     lcd_set_cursor(0, 0);
@@ -85,39 +83,37 @@ void main(void) {
     lcd_write_hex(_nrf_get_reg(EN_AA));
     delay_ms(2000);
 
-    /* TX loop */
-    tx_count = 0;
-    ok_count = 0;
+    /* RX loop */
+    rx_count = 0;
+
+    lcd_set_cursor(0, 0);
+    lcd_write_string("Waiting...      ");
+    lcd_set_cursor(1, 0);
+    lcd_write_string("RX:0000         ");
 
     while (1) {
-        /* Fill payload: counter in first 2 bytes, 0xAA pattern in rest */
-        tx_buf[0] = (unsigned char)(tx_count >> 8);
-        tx_buf[1] = (unsigned char)(tx_count & 0xFF);
-        tx_buf[2] = 0xAA;
-        tx_buf[3] = 0x55;
+        ok = nrf_recv(addr, rx_buf, 2000);
 
-        ok = nrf_send(addr, tx_buf);
-        tx_count++;
-        if (ok) ok_count++;
-
-        /* Line 1: TX count and OK count */
-        lcd_set_cursor(0, 0);
-        lcd_write_string("TX:");
-        lcd_write_dec4(tx_count);
-        lcd_write_string(" OK:");
-        lcd_write_dec4(ok_count);
-
-        /* Line 2: last status + result */
-        status = _nrf_get_reg(STATUS);
-        lcd_set_cursor(1, 0);
-        lcd_write_string("ST:0x");
-        lcd_write_hex(status);
         if (ok) {
-            lcd_write_string("  SENT  ");
-        } else {
-            lcd_write_string("  FAIL  ");
-        }
+            rx_count++;
+            counter = ((unsigned char)rx_buf[0] << 8) | (unsigned char)rx_buf[1];
 
-        delay_ms(1000);
+            lcd_set_cursor(0, 0);
+            lcd_write_string("RX:");
+            lcd_write_dec4(rx_count);
+            lcd_write_string(" TX:");
+            lcd_write_dec4(counter);
+
+            lcd_set_cursor(1, 0);
+            lcd_write_hex((unsigned char)rx_buf[0]);
+            lcd_write_hex((unsigned char)rx_buf[1]);
+            lcd_write_char(' ');
+            lcd_write_hex((unsigned char)rx_buf[2]);
+            lcd_write_hex((unsigned char)rx_buf[3]);
+            lcd_write_string("  GOT!");
+        } else {
+            lcd_set_cursor(1, 8);
+            lcd_write_string(" WAIT...");
+        }
     }
 }

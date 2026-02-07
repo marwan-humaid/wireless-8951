@@ -60,7 +60,7 @@ External LED on GPIO 21 (ESP32 DevKitC V4 has no built-in LED on GPIO 2).
 - NRF24L01: CE=P1.2, CSN=P1.3, SCK=P1.7, MOSI=P1.1, MISO=P1.6 (470R series resistors on SPI lines)
 - USB serial via CH340G (COM port varies, check device manager)
 - Keil C51 toolchain at `C:\Keil_v5\`
-- Requires 47uF+ capacitor on NRF24L01 VCC/GND for stable RF
+- No extra capacitor needed on NRF24L01 VCC/GND (dev board supply is sufficient)
 
 ## Build & Flash
 

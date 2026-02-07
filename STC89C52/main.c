@@ -16,8 +16,10 @@ sbit MISO = P1^6;
 #include "nrf24l01.h"
 
 char xdata rx_buf[32];
-char addr[] = {0x30, 0x30, 0x30, 0x30, 0x31};  /* "00001" */
-unsigned int rx_count;
+char addr[] = {0x30, 0x30, 0x30, 0x30, 0x31};
+
+unsigned char cursor_row;
+unsigned char cursor_col;
 
 void delay_ms(unsigned int ms) {
     unsigned int i, j;
@@ -25,7 +27,6 @@ void delay_ms(unsigned int ms) {
         for (j = 0; j < 200; j++) ;
 }
 
-/* Write a hex byte like "0E" to LCD at current cursor */
 void lcd_write_hex(unsigned char val) {
     unsigned char hi = val >> 4;
     unsigned char lo = val & 0x0F;
@@ -33,7 +34,6 @@ void lcd_write_hex(unsigned char val) {
     lcd_write_char(lo < 10 ? '0' + lo : 'A' + lo - 10);
 }
 
-/* Write a 4-digit decimal number to LCD at current cursor */
 void lcd_write_dec4(unsigned int val) {
     lcd_write_char('0' + (val / 1000) % 10);
     lcd_write_char('0' + (val / 100) % 10);
@@ -41,10 +41,60 @@ void lcd_write_dec4(unsigned int val) {
     lcd_write_char('0' + val % 10);
 }
 
+void cursor_advance(void) {
+    cursor_col++;
+    if (cursor_col >= 16) {
+        cursor_col = 0;
+        cursor_row++;
+        if (cursor_row >= 2) {
+            cursor_row = 0;
+        }
+        lcd_set_cursor(cursor_row, cursor_col);
+    }
+}
+
+void process_char(unsigned char ch) {
+    if (ch == 0x08) {
+        /* backspace */
+        if (cursor_col > 0) {
+            cursor_col--;
+        } else if (cursor_row > 0) {
+            cursor_row--;
+            cursor_col = 15;
+        }
+        lcd_set_cursor(cursor_row, cursor_col);
+        lcd_write_char(' ');
+        lcd_set_cursor(cursor_row, cursor_col);
+    } else if (ch == 0x0D) {
+        /* enter: line 2 or clear */
+        if (cursor_row == 0) {
+            cursor_row = 1;
+            cursor_col = 0;
+            lcd_set_cursor(1, 0);
+            lcd_write_string("                ");
+            lcd_set_cursor(1, 0);
+        } else {
+            lcd_clear();
+            cursor_row = 0;
+            cursor_col = 0;
+        }
+    } else if (ch == 0x0C) {
+        /* Ctrl+L: clear */
+        lcd_clear();
+        cursor_row = 0;
+        cursor_col = 0;
+    } else if (ch >= 0x20 && ch <= 0x7E) {
+        /* printable ASCII */
+        lcd_write_char(ch);
+        cursor_advance();
+    }
+}
+
 void main(void) {
-    unsigned char status;
+    unsigned char i, count;
+    unsigned int poll_count;
+    unsigned int rx_count;
     bool ok;
-    unsigned int counter;
 
     lcd_init();
     delay_ms(100);
@@ -61,16 +111,6 @@ void main(void) {
         while (1) ;
     }
 
-    /* Show init success + register verify */
-    status = _nrf_get_reg(STATUS);
-    lcd_set_cursor(0, 0);
-    lcd_write_string("NRF OK  ST:0x");
-    lcd_write_hex(status);
-
-    lcd_set_cursor(1, 0);
-    lcd_write_string("RX CH:108 1Mbps ");
-    delay_ms(1500);
-
     lcd_set_cursor(0, 0);
     lcd_write_string("CH:");
     lcd_write_hex(_nrf_get_reg(RF_CH));
@@ -81,39 +121,41 @@ void main(void) {
     lcd_write_hex(_nrf_get_reg(CONFIG));
     lcd_write_string(" AA:");
     lcd_write_hex(_nrf_get_reg(EN_AA));
-    delay_ms(2000);
+    delay_ms(3000);
 
-    /* RX loop */
+    lcd_clear();
+    poll_count = 0;
     rx_count = 0;
 
     lcd_set_cursor(0, 0);
-    lcd_write_string("Waiting...      ");
-    lcd_set_cursor(1, 0);
-    lcd_write_string("RX:0000         ");
+    lcd_write_string("Poll:0000 RX:0000");
 
     while (1) {
-        ok = nrf_recv(addr, rx_buf, 2000);
+        ok = nrf_recv(addr, rx_buf, 500);
+        poll_count++;
+
+        lcd_set_cursor(0, 5);
+        lcd_write_dec4(poll_count);
+        lcd_set_cursor(0, 13);
+        lcd_write_dec4(rx_count);
 
         if (ok) {
             rx_count++;
-            counter = ((unsigned char)rx_buf[0] << 8) | (unsigned char)rx_buf[1];
+            count = (unsigned char)rx_buf[0];
 
-            lcd_set_cursor(0, 0);
-            lcd_write_string("RX:");
-            lcd_write_dec4(rx_count);
-            lcd_write_string(" TX:");
-            lcd_write_dec4(counter);
-
+            /* Show raw first 4 bytes for debug */
             lcd_set_cursor(1, 0);
             lcd_write_hex((unsigned char)rx_buf[0]);
             lcd_write_hex((unsigned char)rx_buf[1]);
             lcd_write_char(' ');
             lcd_write_hex((unsigned char)rx_buf[2]);
             lcd_write_hex((unsigned char)rx_buf[3]);
-            lcd_write_string("  GOT!");
-        } else {
-            lcd_set_cursor(1, 8);
-            lcd_write_string(" WAIT...");
+            lcd_write_string(" GOT! ");
+
+            if (count > 31) count = 31;
+            for (i = 0; i < count; i++) {
+                process_char((unsigned char)rx_buf[i + 1]);
+            }
         }
     }
 }

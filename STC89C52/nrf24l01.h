@@ -186,8 +186,15 @@ bool _nrf_check_init() {
 }
 
 void _nrf_config() {
+    CE = 0;
+    CSN = 1;
     _nrf_sleep(5); // let NRF24L01 settle after power-on
     _nrf_get_reg(STATUS); // dummy read to wake SPI bus
+    _nrf_set_reg(CONFIG, NRF_CONFIG); // power down first
+    _nrf_sleep(2);
+    _nrf_set_reg(STATUS, (1<<RX_DR)|(1<<TX_DS)|(1<<MAX_RT)); // clear all flags
+    CSN = 0; { _nrf_rw(FLUSH_TX); } CSN = 1;
+    CSN = 0; { _nrf_rw(FLUSH_RX); } CSN = 1;
     _nrf_set_reg(EN_AA, 0); // disable auto-ack for testing
     _nrf_set_reg(SETUP_RETR,(0x0f<<ARD)|(0x0f<<ARC)); // 15 retries with 4000 us delay
     _nrf_set_reg(RF_SETUP, (0<<RF_DR_LOW)|(0<<RF_DR)|(3<<RF_PWR)); // 1 Mbps, 0 dBm

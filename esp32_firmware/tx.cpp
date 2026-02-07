@@ -34,6 +34,7 @@ void setup() {
   }
 
   radio.setChannel(108);
+  radio.setDataRate(RF24_1MBPS);
   radio.setPALevel(RF24_PA_MAX);
   radio.setCRCLength(RF24_CRC_16);
   radio.setPayloadSize(32);

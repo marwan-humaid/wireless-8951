@@ -11,20 +11,25 @@ RF24 radio(CE_PIN, CSN_PIN);
 
 const byte address[5] = {0x30, 0x30, 0x30, 0x30, 0x31};
 
-char rx_buf[32];
-uint32_t rx_count = 0;
+uint32_t tx_count = 0;
+char tx_buf[32];
 
 void setup() {
   Serial.begin(115200);
   pinMode(LED_PIN, OUTPUT);
-  delay(1000);
+
+  // Solid LED for 2s = board is alive
+  digitalWrite(LED_PIN, HIGH);
+  delay(2000);
+  digitalWrite(LED_PIN, LOW);
+  delay(500);
 
   WiFi.mode(WIFI_OFF);
   btStop();
   SPI.begin();
 
   if (!radio.begin()) {
-    Serial.println("NRF24L01 init FAILED");
+    // Rapid blink = radio init failed
     while (1) { digitalWrite(LED_PIN, !digitalRead(LED_PIN)); delay(100); }
   }
 
@@ -35,11 +40,8 @@ void setup() {
   radio.setPayloadSize(32);
   radio.setAutoAck(false);
 
-  radio.openReadingPipe(1, address);
-  radio.startListening();
-
-  Serial.println("ESP32 RX ready - CH:108 1Mbps");
-  radio.printPrettyDetails();
+  radio.openWritingPipe(address);
+  radio.stopListening();
 
   for (int i = 0; i < 3; i++) {
     digitalWrite(LED_PIN, HIGH); delay(100);
@@ -48,19 +50,17 @@ void setup() {
 }
 
 void loop() {
-  if (radio.available()) {
-    radio.read(&rx_buf, 32);
-    rx_count++;
+  memset(tx_buf, 0, 32);
+  tx_buf[0] = (tx_count >> 8) & 0xFF;
+  tx_buf[1] = tx_count & 0xFF;
+  tx_buf[2] = 0xAA;
+  tx_buf[3] = 0x55;
 
-    uint16_t counter = ((uint8_t)rx_buf[0] << 8) | (uint8_t)rx_buf[1];
-    Serial.printf("#%lu | STC counter: %u | ", rx_count, counter);
-    for (int i = 0; i < 8; i++) {
-      Serial.printf("%02X ", (uint8_t)rx_buf[i]);
-    }
-    Serial.println();
+  radio.write(&tx_buf, 32);
+  tx_count++;
 
-    digitalWrite(LED_PIN, HIGH);
-    delay(200);
-    digitalWrite(LED_PIN, LOW);
-  }
+  digitalWrite(LED_PIN, HIGH);
+  delay(50);
+  digitalWrite(LED_PIN, LOW);
+  delay(950);
 }

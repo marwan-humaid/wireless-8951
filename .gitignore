@@ -11,3 +11,6 @@ STC89C52/build_log.txt
 
 # PDFs
 *.pdf
+
+# Cloned reference libraries
+_nrf24l01_lib/

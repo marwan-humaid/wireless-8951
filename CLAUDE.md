@@ -1,15 +1,20 @@
 # wireless-8951
 
-NRF24L01 wireless communication between an ESP32-DevKitC V4 (transmitter) and an STC89C52RC 8051 microcontroller (receiver).
+NRF24L01 wireless communication between an STC89C52RC 8051 microcontroller (transmitter) and an ESP32-DevKitC V4 (receiver).
 
 ## Project Structure
 
 ```
 wireless-8951/
-+-- src/main.cpp              # ESP32 NRF24L01 transmitter (PlatformIO/Arduino)
++-- src/main.cpp              # ESP32 active firmware (PlatformIO/Arduino) - copy tx.cpp or rx.cpp here
 +-- platformio.ini            # PlatformIO config (esp32dev, RF24 library)
++-- esp32_firmware/
+|   +-- tx.cpp                # ESP32 NRF24L01 transmitter test
+|   +-- rx.cpp                # ESP32 NRF24L01 receiver (prints to serial + LED blink)
 +-- STC89C52/
-|   +-- main.c                # STC89C52RC firmware (Keil C51)
+|   +-- main.c                # STC89C52RC NRF TX + LCD1602 status display (Keil C51)
+|   +-- nrf24l01.h            # NRF24L01 driver (bit-banged SPI, adapted from CooledCoffee/nrf24l01)
+|   +-- lcd1602.h             # LCD1602 driver (8-bit mode, HD44780)
 |   +-- STC89C52.uvproj       # Keil uVision project
 |   +-- STC89C52.uvopt        # Keil uVision options
 |   +-- build.sh              # CLI build + flash script
@@ -31,7 +36,7 @@ The patch script inverts stcgal's DTR auto-reset polarity. Required for boards w
 
 ## Hardware
 
-### ESP32-DevKitC V4 (Transmitter)
+### ESP32-DevKitC V4 (Receiver)
 
 NRF24L01 wiring (VSPI):
 
@@ -46,20 +51,26 @@ NRF24L01 wiring (VSPI):
 | MISO     | GPIO 19   |
 | IRQ      | N/C       |
 
-### STC89C52RC (Receiver)
+External LED on GPIO 21 (ESP32 DevKitC V4 has no built-in LED on GPIO 2).
+
+### STC89C52RC (Transmitter)
 
 - Crystal: 11.0592 MHz
-- LEDs on P2.0-P2.7 (active low)
-- USB serial via CH340G on COM13
+- LCD1602: data on P0, EN=P2.7, RS=P2.6, RW=P2.5
+- NRF24L01: CE=P1.2, CSN=P1.3, SCK=P1.7, MOSI=P1.1, MISO=P1.6 (470R series resistors on SPI lines)
+- USB serial via CH340G (COM port varies, check device manager)
 - Keil C51 toolchain at `C:\Keil_v5\`
+- Requires 47uF+ capacitor on NRF24L01 VCC/GND for stable RF
 
 ## Build & Flash
 
 ### ESP32
 
+Copy the desired firmware to src/main.cpp before building (PlatformIO compiles all .cpp in src/):
+
 ```bash
-.venv/Scripts/activate
-pio run -t upload          # build and flash
+cp esp32_firmware/rx.cpp src/main.cpp   # for receiver
+pio run -t upload --upload-port COMxx
 pio device monitor -b 115200
 ```
 
@@ -69,18 +80,22 @@ pio device monitor -b 115200
 STC89C52/build.sh
 ```
 
-This runs Keil UV4 headless (`-j0 -b`) and flashes via stcgal with DTR auto power-cycle. No manual intervention needed.
-
-To flash manually without the build script:
+This runs Keil UV4 headless (`-j0 -b`) and flashes via stcgal with DTR auto power-cycle. Build script has COM13 hardcoded; flash manually for other ports:
 
 ```bash
-.venv/Scripts/stcgal -P stc89 -p COM13 -a STC89C52/Objects/STC89C52.hex
+.venv/Scripts/stcgal -P stc89 -p COMxx -a STC89C52/Objects/STC89C52.hex
 ```
 
 ## Radio Config (must match on both sides)
 
-- Address: `"00001"`
-- Channel: 76
-- Data rate: 250kbps
+- Address: {0x30, 0x30, 0x30, 0x30, 0x31} ("00001")
+- Channel: 108
+- Data rate: 1 Mbps
 - CRC: 2-byte
-- Payload: 28 bytes (4-byte counter + 24-byte message)
+- Auto-ack: disabled
+- Payload: 32 bytes
+
+## Known Issues
+
+- **First SPI write drops on STC**: NRF24L01 needs ~5ms delay + dummy read before first register write after power-on. Handled in nrf24l01.h `_nrf_config()`.
+- **Clone NRF24L01 modules don't support 250kbps**: `setDataRate(RF24_250KBPS)` silently fails, stays at 1Mbps.

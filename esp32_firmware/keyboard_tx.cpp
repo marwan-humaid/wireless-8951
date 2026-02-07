@@ -33,50 +33,27 @@ void setup() {
   radio.stopListening();
 
   Serial.println("Keyboard TX ready. Send chars over serial.");
-  radio.printPrettyDetails();
-
-  // Send test message on boot (repeat to ensure STC is in RX mode)
-  delay(5000);
-  for (int t = 0; t < 3; t++) {
-    const char *msg = "Hello STC!";
-    uint8_t len = strlen(msg);
-    memset(tx_buf, 0, 32);
-    tx_buf[0] = len;
-    memcpy(&tx_buf[1], msg, len);
-    radio.write(&tx_buf, 32);
-    delay(500);
-  }
-  Serial.println("Sent test: Hello STC! (x3)");
 }
 
-uint32_t ping_count = 0;
+void sendString(const char *msg) {
+  uint8_t len = strlen(msg);
+  if (len > 31) len = 31;
+  memset(tx_buf, 0, 32);
+  tx_buf[0] = len;
+  memcpy(&tx_buf[1], msg, len);
+  radio.write(&tx_buf, 32);
+}
 
 void loop() {
   if (Serial.available()) {
     memset(tx_buf, 0, 32);
     uint8_t count = 0;
-    delay(20);  // small window to batch chars arriving together
+    delay(20);
     while (Serial.available() && count < 31) {
       tx_buf[count + 1] = Serial.read();
       count++;
     }
     tx_buf[0] = count;
-
     radio.write(&tx_buf, 32);
-  } else {
-    // Send periodic ping every 2 seconds so we can verify the link
-    static unsigned long last_ping = 0;
-    if (millis() - last_ping > 2000) {
-      last_ping = millis();
-      ping_count++;
-      char msg[16];
-      sprintf(msg, "ping %lu", ping_count);
-      uint8_t len = strlen(msg);
-      memset(tx_buf, 0, 32);
-      tx_buf[0] = len;
-      memcpy(&tx_buf[1], msg, len);
-      radio.write(&tx_buf, 32);
-      Serial.printf("Sent: %s\n", msg);
-    }
   }
 }

@@ -92,8 +92,6 @@ void process_char(unsigned char ch) {
 
 void main(void) {
     unsigned char i, count;
-    unsigned int poll_count;
-    unsigned int rx_count;
     bool ok;
 
     lcd_init();
@@ -112,46 +110,19 @@ void main(void) {
     }
 
     lcd_set_cursor(0, 0);
-    lcd_write_string("CH:");
-    lcd_write_hex(_nrf_get_reg(RF_CH));
-    lcd_write_string(" RF:");
-    lcd_write_hex(_nrf_get_reg(RF_SETUP));
+    lcd_write_string("Keyboard RX OK  ");
     lcd_set_cursor(1, 0);
-    lcd_write_string("CF:");
-    lcd_write_hex(_nrf_get_reg(CONFIG));
-    lcd_write_string(" AA:");
-    lcd_write_hex(_nrf_get_reg(EN_AA));
-    delay_ms(3000);
+    lcd_write_string("CH:108  1Mbps   ");
+    delay_ms(1500);
 
     lcd_clear();
-    poll_count = 0;
-    rx_count = 0;
-
-    lcd_set_cursor(0, 0);
-    lcd_write_string("Poll:0000 RX:0000");
+    cursor_row = 0;
+    cursor_col = 0;
 
     while (1) {
         ok = nrf_recv(addr, rx_buf, 500);
-        poll_count++;
-
-        lcd_set_cursor(0, 5);
-        lcd_write_dec4(poll_count);
-        lcd_set_cursor(0, 13);
-        lcd_write_dec4(rx_count);
-
         if (ok) {
-            rx_count++;
             count = (unsigned char)rx_buf[0];
-
-            /* Show raw first 4 bytes for debug */
-            lcd_set_cursor(1, 0);
-            lcd_write_hex((unsigned char)rx_buf[0]);
-            lcd_write_hex((unsigned char)rx_buf[1]);
-            lcd_write_char(' ');
-            lcd_write_hex((unsigned char)rx_buf[2]);
-            lcd_write_hex((unsigned char)rx_buf[3]);
-            lcd_write_string(" GOT! ");
-
             if (count > 31) count = 31;
             for (i = 0; i < count; i++) {
                 process_char((unsigned char)rx_buf[i + 1]);

@@ -14,3 +14,7 @@ STC89C52/build_log.txt
 
 # Cloned reference libraries
 _nrf24l01_lib/
+
+# IDE / tooling
+.idea/
+.omc/

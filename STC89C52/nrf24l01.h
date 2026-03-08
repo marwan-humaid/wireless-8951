@@ -195,7 +195,7 @@ void _nrf_config() {
     _nrf_set_reg(STATUS, (1<<RX_DR)|(1<<TX_DS)|(1<<MAX_RT)); // clear all flags
     CSN = 0; { _nrf_rw(FLUSH_TX); } CSN = 1;
     CSN = 0; { _nrf_rw(FLUSH_RX); } CSN = 1;
-    _nrf_set_reg(EN_AA, 0); // disable auto-ack for testing
+    _nrf_set_reg(EN_AA, 0); // auto-ack off (clone modules unreliable)
     _nrf_set_reg(SETUP_RETR,(0x0f<<ARD)|(0x0f<<ARC)); // 15 retries with 4000 us delay
     _nrf_set_reg(RF_SETUP, (0<<RF_DR_LOW)|(0<<RF_DR)|(3<<RF_PWR)|1); // 1 Mbps, 0 dBm, LNA high
     _nrf_set_reg(EN_RXADDR, (1<<ERX_P0));

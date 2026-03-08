@@ -1,6 +1,7 @@
 import serial
 import sys
 import msvcrt
+import time
 
 def main():
     if len(sys.argv) < 2:
@@ -18,24 +19,37 @@ def main():
 
     try:
         while True:
+            # Read and display ESP32 debug output
+            if ser.in_waiting:
+                line = ser.readline().decode('ascii', errors='replace').rstrip()
+                if line:
+                    print(f"\n  [ESP32] {line}", end='', flush=True)
+
             if msvcrt.kbhit():
-                ch = msvcrt.getch()
-                if ch == b'\xe0' or ch == b'\x00':
-                    msvcrt.getch()  # consume special key second byte
-                    continue
-                ser.write(ch)
-                # Local echo
-                if ch == b'\r':
-                    print()
-                elif ch == b'\x08':
-                    print('\b \b', end='', flush=True)
-                elif ch == b'\x0c':
-                    print('[CLR]')
-                else:
-                    try:
-                        print(ch.decode('ascii'), end='', flush=True)
-                    except UnicodeDecodeError:
-                        pass
+                buf = b''
+                while msvcrt.kbhit() and len(buf) < 31:
+                    ch = msvcrt.getch()
+                    if ch == b'\xe0' or ch == b'\x00':
+                        msvcrt.getch()  # consume special key second byte
+                        continue
+                    buf += ch
+                    # Local echo
+                    if ch == b'\r':
+                        print()
+                    elif ch == b'\x08':
+                        print('\b \b', end='', flush=True)
+                    elif ch == b'\x0c':
+                        print('[CLR]')
+                    else:
+                        try:
+                            print(ch.decode('ascii'), end='', flush=True)
+                        except UnicodeDecodeError:
+                            pass
+                if buf:
+                    ser.write(buf)
+                    time.sleep(0.03)  # give ESP32 time to transmit
+            else:
+                time.sleep(0.005)  # avoid busy-waiting
     except KeyboardInterrupt:
         print("\nDisconnected.")
     finally:

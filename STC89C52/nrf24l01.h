@@ -197,7 +197,7 @@ void _nrf_config() {
     CSN = 0; { _nrf_rw(FLUSH_RX); } CSN = 1;
     _nrf_set_reg(EN_AA, 0); // disable auto-ack for testing
     _nrf_set_reg(SETUP_RETR,(0x0f<<ARD)|(0x0f<<ARC)); // 15 retries with 4000 us delay
-    _nrf_set_reg(RF_SETUP, (0<<RF_DR_LOW)|(0<<RF_DR)|(3<<RF_PWR)); // 1 Mbps, 0 dBm
+    _nrf_set_reg(RF_SETUP, (0<<RF_DR_LOW)|(0<<RF_DR)|(3<<RF_PWR)|1); // 1 Mbps, 0 dBm, LNA high
     _nrf_set_reg(EN_RXADDR, (1<<ERX_P0));
     _nrf_set_reg(RX_PW_P0, NRF_PAYLOAD_LEN);
     _nrf_set_reg(RF_CH, 108); // moved last - first SPI write was failing
@@ -283,13 +283,17 @@ bool _nrf_wait_for_recv(int timeout) {
 
 bool _nrf_wait_for_send() {
     char status;
-    while (TRUE) {
+    int timeout = 100; // 100ms max wait
+    while (timeout > 0) {
         status = _nrf_get_reg(STATUS);
         if (status & (1<<TX_DS))
             return TRUE;
         else if (status & (1<<MAX_RT))
             return FALSE;
+        _nrf_sleep(1);
+        timeout--;
     }
+    return FALSE;
 }
 
 void _nrf_write_tx_payload(char* buffer) {
@@ -308,14 +312,8 @@ bool _nrf_try_recv() {
 
 void _nrf_sleep(int millis) {
     /*
-    We use the form "for (i = 0; i < 100; i++)" instead of "for (i = 100; i--;)".
-    Because the 1st form is actually twice fast as the 2nd form after SDCC optimization.
-    Note that this is compiler dependent.
-
-    Also note that the 1st milli takes less loops because we have to take account of
-    the overhead of the function call.
-    This function takes 6 NOPs for entering and another 6 NOPs for return (the times
-    may be different for other functions).
+    Calibrated delay loops. Originally tuned for SDCC; timing on Keil C51
+    will differ but the NRF24L01 is tolerant of longer-than-spec delays.
     */
     char i;
     for (i = 0; i < 100; i++) ;

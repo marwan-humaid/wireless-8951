@@ -35,15 +35,6 @@ void setup() {
   Serial.println("Keyboard TX ready. Send chars over serial.");
 }
 
-void sendString(const char *msg) {
-  uint8_t len = strlen(msg);
-  if (len > 31) len = 31;
-  memset(tx_buf, 0, 32);
-  tx_buf[0] = len;
-  memcpy(&tx_buf[1], msg, len);
-  radio.write(&tx_buf, 32);
-}
-
 void loop() {
   if (Serial.available()) {
     memset(tx_buf, 0, 32);

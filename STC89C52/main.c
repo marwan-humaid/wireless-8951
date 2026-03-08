@@ -27,20 +27,6 @@ void delay_ms(unsigned int ms) {
         for (j = 0; j < 200; j++) ;
 }
 
-void lcd_write_hex(unsigned char val) {
-    unsigned char hi = val >> 4;
-    unsigned char lo = val & 0x0F;
-    lcd_write_char(hi < 10 ? '0' + hi : 'A' + hi - 10);
-    lcd_write_char(lo < 10 ? '0' + lo : 'A' + lo - 10);
-}
-
-void lcd_write_dec4(unsigned int val) {
-    lcd_write_char('0' + (val / 1000) % 10);
-    lcd_write_char('0' + (val / 100) % 10);
-    lcd_write_char('0' + (val / 10) % 10);
-    lcd_write_char('0' + val % 10);
-}
-
 void cursor_advance(void) {
     cursor_col++;
     if (cursor_col >= 16) {

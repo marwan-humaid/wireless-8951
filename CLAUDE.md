@@ -1,26 +1,27 @@
 # wireless-8951
 
-NRF24L01 wireless communication between an STC89C52RC 8051 microcontroller (transmitter) and an ESP32-DevKitC V4 (receiver).
+NRF24L01 wireless communication between an STC89C52RC 8051 microcontroller and an ESP32-DevKitC V4. Primary use case: wireless keyboard -- type on PC, characters appear on LCD via radio.
 
 ## Project Structure
 
 ```
 wireless-8951/
-+-- src/main.cpp              # ESP32 active firmware (PlatformIO/Arduino) - copy tx.cpp or rx.cpp here
++-- src/main.cpp              # ESP32 active firmware (PlatformIO/Arduino) - copy from esp32_firmware/
 +-- platformio.ini            # PlatformIO config (esp32dev, RF24 library)
++-- keyboard_client.py        # Python keyboard client (PC -> ESP32 serial)
 +-- esp32_firmware/
-|   +-- tx.cpp                # ESP32 NRF24L01 transmitter test
-|   +-- rx.cpp                # ESP32 NRF24L01 receiver (prints to serial + LED blink)
+|   +-- keyboard_tx.cpp       # ESP32 keyboard forwarder (serial -> NRF24L01 TX)
+|   +-- tx.cpp                # ESP32 NRF24L01 counter transmitter (test/reference)
+|   +-- rx.cpp                # ESP32 NRF24L01 receiver (test/reference)
 +-- STC89C52/
-|   +-- main.c                # STC89C52RC NRF TX + LCD1602 status display (Keil C51)
+|   +-- main.c                # STC89C52RC keyboard RX: NRF24L01 -> LCD1602 display
 |   +-- nrf24l01.h            # NRF24L01 driver (bit-banged SPI, adapted from CooledCoffee/nrf24l01)
 |   +-- lcd1602.h             # LCD1602 driver (8-bit mode, HD44780)
 |   +-- STC89C52.uvproj       # Keil uVision project
 |   +-- STC89C52.uvopt        # Keil uVision options
 |   +-- build.sh              # CLI build + flash script
-|   +-- rts_pulse.py          # RTS power-cycle helper (unused, kept for reference)
 +-- patch_stcgal.py           # Inverts stcgal DTR polarity for auto power-cycle
-+-- requirements.txt          # Python dependencies (platformio, stcgal)
++-- requirements.txt          # Python dependencies (platformio, stcgal, pyserial)
 +-- .gitignore
 ```
 
@@ -34,26 +35,42 @@ py -m venv .venv
 
 The patch script inverts stcgal's DTR auto-reset polarity. Required for boards where the CH340G DTR circuit needs inverted logic to power-cycle the MCU. Idempotent -- safe to run multiple times.
 
+## Wireless Keyboard Usage
+
+```bash
+# Flash ESP32 (keyboard forwarder)
+cp esp32_firmware/keyboard_tx.cpp src/main.cpp
+pio run -t upload --upload-port COMxx
+
+# Flash STC89C52 (keyboard receiver + LCD)
+# Build in Keil GUI, then:
+.venv/Scripts/stcgal -P stc89 -p COMxx -a STC89C52/Objects/STC89C52.hex
+# Power cycle the STC board after flashing
+
+# Run keyboard client
+.venv/Scripts/python keyboard_client.py COMxx   # ESP32's COM port
+```
+
+Protocol: byte 0 = character count (1-31), bytes 1-31 = ASCII characters. Supports backspace, Enter (new line / clear), Ctrl+L (clear screen).
+
 ## Hardware
 
-### ESP32-DevKitC V4 (Receiver)
+### ESP32-DevKitC V4 (Keyboard Forwarder)
 
 NRF24L01 wiring (VSPI):
 
-| NRF24L01 | ESP32 GPIO |
-|----------|-----------|
+| NRF24L01 | ESP32 GPIO                        |
+| -------- | --------------------------------- |
 | VCC      | 5V (breakout board has regulator) |
-| GND      | GND       |
-| CE       | GPIO 4    |
-| CSN      | GPIO 5    |
-| SCK      | GPIO 18   |
-| MOSI     | GPIO 23   |
-| MISO     | GPIO 19   |
-| IRQ      | N/C       |
+| GND      | GND                               |
+| CE       | GPIO 4                            |
+| CSN      | GPIO 5                            |
+| SCK      | GPIO 18                           |
+| MOSI     | GPIO 23                           |
+| MISO     | GPIO 19                           |
+| IRQ      | N/C                               |
 
-External LED on GPIO 21 (ESP32 DevKitC V4 has no built-in LED on GPIO 2).
-
-### STC89C52RC (Transmitter)
+### STC89C52RC (Keyboard Receiver + LCD)
 
 - Crystal: 11.0592 MHz
 - LCD1602: data on P0, EN=P2.7, RS=P2.6, RW=P2.5
@@ -69,22 +86,19 @@ External LED on GPIO 21 (ESP32 DevKitC V4 has no built-in LED on GPIO 2).
 Copy the desired firmware to src/main.cpp before building (PlatformIO compiles all .cpp in src/):
 
 ```bash
-cp esp32_firmware/rx.cpp src/main.cpp   # for receiver
+cp esp32_firmware/keyboard_tx.cpp src/main.cpp   # for keyboard forwarder
 pio run -t upload --upload-port COMxx
-pio device monitor -b 115200
 ```
 
 ### STC89C52
 
-```bash
-STC89C52/build.sh
-```
-
-This runs Keil UV4 headless (`-j0 -b`) and flashes via stcgal with DTR auto power-cycle. Build script has COM13 hardcoded; flash manually for other ports:
+Build in Keil GUI (recommended -- CLI builds can produce stale artifacts), then flash:
 
 ```bash
 .venv/Scripts/stcgal -P stc89 -p COMxx -a STC89C52/Objects/STC89C52.hex
 ```
+
+Power cycle the STC board after flashing (the NRF24L01 needs a clean power-on reset).
 
 ## Radio Config (must match on both sides)
 
@@ -98,4 +112,7 @@ This runs Keil UV4 headless (`-j0 -b`) and flashes via stcgal with DTR auto powe
 ## Known Issues
 
 - **First SPI write drops on STC**: NRF24L01 needs ~5ms delay + dummy read before first register write after power-on. Handled in nrf24l01.h `_nrf_config()`.
+- **NRF24L01 dirty-state after MCU-only reset**: After stcgal flashes, the MCU resets but the NRF24L01 stays powered in a dirty state. `_nrf_config()` forces power-down + FIFO flush + flag clear before configuring. A manual power cycle is still recommended.
 - **Clone NRF24L01 modules don't support 250kbps**: `setDataRate(RF24_250KBPS)` silently fails, stays at 1Mbps.
+- **Keil CLI builds can be stale**: `UV4.exe -b` (incremental build) sometimes uses cached objects. Use `-r` (rebuild) or build from Keil GUI.
+- **STC COM port changes**: CH340G board may appear on different COM ports between connections. Check device manager.

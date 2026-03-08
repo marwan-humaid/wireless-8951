@@ -20,11 +20,55 @@ char addr[] = {0x30, 0x30, 0x30, 0x30, 0x31};
 
 unsigned char cursor_row;
 unsigned char cursor_col;
+unsigned char last_seq = 0xFF;
+unsigned int pkt_count = 0;
+unsigned int dup_count = 0;
 
 void delay_ms(unsigned int ms) {
     unsigned int i, j;
     for (i = 0; i < ms; i++)
         for (j = 0; j < 200; j++) ;
+}
+
+/* UART at 57600 baud (11.0592 MHz crystal, SMOD=1, TH1=0xFF) */
+void uart_init(void) {
+    SCON = 0x50;   /* mode 1, REN=1 */
+    TMOD &= 0x0F;
+    TMOD |= 0x20;  /* Timer 1 mode 2 (auto-reload) */
+    TH1 = 0xFF;    /* 57600 baud with SMOD=1 */
+    TL1 = 0xFF;
+    PCON |= 0x80;  /* SMOD = 1 */
+    TR1 = 1;
+}
+
+void uart_send(unsigned char c) {
+    SBUF = c;
+    while (!TI) ;
+    TI = 0;
+}
+
+void uart_print(char *s) {
+    while (*s)
+        uart_send(*s++);
+}
+
+void uart_hex(unsigned char v) {
+    unsigned char nibble;
+    nibble = v >> 4;
+    uart_send(nibble < 10 ? '0' + nibble : 'A' + nibble - 10);
+    nibble = v & 0x0F;
+    uart_send(nibble < 10 ? '0' + nibble : 'A' + nibble - 10);
+}
+
+void uart_dec(unsigned int v) {
+    unsigned char buf[5];
+    unsigned char i = 0;
+    if (v == 0) { uart_send('0'); return; }
+    while (v > 0) {
+        buf[i++] = '0' + (v % 10);
+        v /= 10;
+    }
+    while (i > 0) uart_send(buf[--i]);
 }
 
 void cursor_advance(void) {
@@ -78,8 +122,8 @@ void process_char(unsigned char ch) {
 
 void main(void) {
     unsigned char i, count;
-    bool ok;
 
+    uart_init();
     lcd_init();
     delay_ms(100);
 
@@ -105,13 +149,43 @@ void main(void) {
     cursor_row = 0;
     cursor_col = 0;
 
+    /* Enter RX mode and stay there */
+    _nrf_set_reg_mb(RX_ADDR_P0, addr, 5);
+    _nrf_set_reg(CONFIG, NRF_CONFIG|((1<<PWR_UP)|(1<<PRIM_RX)));
+    CSN = 0; { _nrf_rw(FLUSH_RX); } CSN = 1;
+    _nrf_set_reg(STATUS, (1<<RX_DR));
+    CE = 1;
+
     while (1) {
-        ok = nrf_recv(addr, rx_buf, 500);
-        if (ok) {
-            count = (unsigned char)rx_buf[0];
-            if (count > 31) count = 31;
-            for (i = 0; i < count; i++) {
-                process_char((unsigned char)rx_buf[i + 1]);
+        if (_nrf_get_reg(STATUS) & (1<<RX_DR)) {
+            _nrf_set_reg(STATUS, (1<<RX_DR));
+
+            /* CE stays HIGH - SPI works fine during RX mode.
+               Check FIFO_STATUS BEFORE reading to avoid reading from empty FIFO (returns garbage). */
+            while (!(_nrf_get_reg(FIFO_STATUS) & (1<<RX_EMPTY))) {
+                _nrf_read_rx_payload(rx_buf);
+                pkt_count++;
+                count = (unsigned char)rx_buf[0];
+                uart_print("PKT seq=");
+                uart_hex((unsigned char)rx_buf[31]);
+                uart_print(" cnt=");
+                uart_hex(count);
+                if ((unsigned char)rx_buf[31] == last_seq) {
+                    dup_count++;
+                    uart_print(" DUP\r\n");
+                    continue;
+                }
+                last_seq = (unsigned char)rx_buf[31];
+                if (count == 0 || count > 30) {
+                    uart_print(" BAD\r\n");
+                    continue;
+                }
+                uart_print(" data=");
+                for (i = 0; i < count; i++) {
+                    uart_send((unsigned char)rx_buf[i + 1]);
+                    process_char((unsigned char)rx_buf[i + 1]);
+                }
+                uart_print("\r\n");
             }
         }
     }

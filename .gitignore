@@ -9,7 +9,14 @@ STC89C52/build_log.txt
 *.bak
 *.LST
 
-# PDFs
+# LaTeX build artifacts
+report/*.aux
+report/*.log
+report/*.out
+report/*.toc
+report/*.fls
+report/*.fdb_latexmk
+report/*.synctex.gz
 *.pdf
 
 # Cloned reference libraries
@@ -18,3 +25,6 @@ _nrf24l01_lib/
 # IDE / tooling
 .idea/
 .omc/
+*.zip
+docs/
+*.local*

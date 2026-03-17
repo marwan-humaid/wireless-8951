@@ -2,6 +2,10 @@
 
 NRF24L01 wireless communication between an STC89C52RC 8051 microcontroller and an ESP32-DevKitC V4. Primary use case: wireless keyboard -- type on PC, characters appear on LCD via radio.
 
+## Writing Style
+
+- Do not use em dashes (---) or en dashes (--) in LaTeX report output. Use commas, semicolons, parentheses, or separate sentences instead.
+
 ## Project Structure
 
 ```

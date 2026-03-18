@@ -160,8 +160,7 @@ void main(void) {
         if (_nrf_get_reg(STATUS) & (1<<RX_DR)) {
             _nrf_set_reg(STATUS, (1<<RX_DR));
 
-            /* CE stays HIGH - SPI works fine during RX mode.
-               Check FIFO_STATUS BEFORE reading to avoid reading from empty FIFO (returns garbage). */
+            /* Check FIFO before reading (empty FIFO returns garbage) */
             while (!(_nrf_get_reg(FIFO_STATUS) & (1<<RX_EMPTY))) {
                 _nrf_read_rx_payload(rx_buf);
                 pkt_count++;

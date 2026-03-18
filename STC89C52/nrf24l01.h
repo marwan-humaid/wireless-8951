@@ -195,13 +195,13 @@ void _nrf_config() {
     _nrf_set_reg(STATUS, (1<<RX_DR)|(1<<TX_DS)|(1<<MAX_RT)); // clear all flags
     CSN = 0; { _nrf_rw(FLUSH_TX); } CSN = 1;
     CSN = 0; { _nrf_rw(FLUSH_RX); } CSN = 1;
-    _nrf_set_reg(EN_AA, 0); // auto-ack off (clone modules unreliable)
-    _nrf_set_reg(SETUP_RETR,(0x0f<<ARD)|(0x0f<<ARC)); // 15 retries with 4000 us delay
-    _nrf_set_reg(RF_SETUP, (0<<RF_DR_LOW)|(0<<RF_DR)|(3<<RF_PWR)|1); // 1 Mbps, 0 dBm, LNA high
+    _nrf_set_reg(EN_AA, 0); // no auto-ack (clones)
+    _nrf_set_reg(SETUP_RETR,(0x0f<<ARD)|(0x0f<<ARC)); // 15x retry, 4ms
+    _nrf_set_reg(RF_SETUP, (0<<RF_DR_LOW)|(0<<RF_DR)|(3<<RF_PWR)|1); // 1Mbps, 0dBm
     _nrf_set_reg(EN_RXADDR, (1<<ERX_P0));
     _nrf_set_reg(RX_PW_P0, NRF_PAYLOAD_LEN);
-    _nrf_set_reg(RF_CH, 108); // moved last - first SPI write was failing
-    _nrf_set_reg(CONFIG, NRF_CONFIG|(1<<PWR_UP)); // power up into standby-I
+    _nrf_set_reg(RF_CH, 108); // last: early writes drop
+    _nrf_set_reg(CONFIG, NRF_CONFIG|(1<<PWR_UP)); // standby-I
     _nrf_sleep(2); // 1.5ms power-up delay
 }
 

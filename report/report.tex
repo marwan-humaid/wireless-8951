@@ -7,6 +7,9 @@
 \geometry{margin=2.5cm}
 \usepackage{parskip}
 \usepackage{url}
+\usepackage{tikz}
+\usetikzlibrary{positioning, arrows.meta, decorations.pathreplacing, fit}
+\usepackage[export]{adjustbox}
 
 \title{Wireless Keyboard System Using NRF24L01 Radio Communication\\Between STC89C52RC and ESP32}
 \author{}
@@ -44,13 +47,69 @@ The system was developed and validated through a series of incremental experimen
 
 The first step was to verify that the ESP32 could reliably receive characters from the PC over its USB serial link. A simple Python script using \texttt{msvcrt.getch()} captured individual keystrokes on Windows and forwarded them to the ESP32 at 115\,200\,baud. The ESP32 firmware echoed received bytes back to the serial monitor, confirming that the serial path worked end to end before any radio hardware was involved.
 
-With serial confirmed, two ESP32 boards were each connected to an NRF24L01 breakout circuit to test radio communication in isolation. The transmitter (\texttt{tx.cpp}) sent a 32-byte packet every second containing a 16-bit counter and a \texttt{0xAA}/\texttt{0x55} marker pattern. The receiver (\texttt{rx.cpp}) printed incoming packets as a hex dump over serial and toggled an LED on each reception. Both boards used the RF24 Arduino library over hardware SPI (VSPI: CE on GPIO\,4, CSN on GPIO\,5, SCK on GPIO\,18, MOSI on GPIO\,23, MISO on GPIO\,19). Radio parameters were set to channel~108, 1\,Mbps data rate, 2-byte CRC, no auto-acknowledgement, and a fixed 32-byte payload. Communication was confirmed in both directions by swapping TX/RX roles.
+With serial confirmed, two ESP32 boards were each connected to an NRF24L01 breakout circuit (Figure~\ref{fig:esp32-nrf}) to test radio communication in isolation. The transmitter (\texttt{tx.cpp}) sent a 32-byte packet every second containing a 16-bit counter and a \texttt{0xAA}/\texttt{0x55} marker pattern. The receiver (\texttt{rx.cpp}) printed incoming packets as a hex dump over serial and toggled an LED on each reception. Both boards used the RF24 Arduino library over hardware SPI (VSPI: CE on GPIO\,4, CSN on GPIO\,5, SCK on GPIO\,18, MOSI on GPIO\,23, MISO on GPIO\,19). Radio parameters were set to channel~108, 1\,Mbps data rate, 2-byte CRC, no auto-acknowledgement, and a fixed 32-byte payload. Communication was confirmed in both directions by swapping TX/RX roles.
 
-The next step was to replace one of the ESP32 receivers with the STC89C52RC board. The NRF24L01 chip was inserted into the STC breakout board and wired via bit-banged SPI on Port~1 (CE on P1.2, CSN on P1.3, SCK on P1.7, MOSI on P1.1, MISO on P1.6, with 470\,$\Omega$ series resistors). The ESP32 continued transmitting its counter packets. Initial attempts showed no indication of reception on the STC side. Online suggestions pointed to a missing decoupling capacitor on the NRF24L01 supply; a 47\,$\mu$F capacitor was soldered in with a mediocre setup, but communication still failed. To rule out the ESP32 side, a second ESP32 and breakout board were used to confirm that the radio link worked between two ESP32s. The problem was therefore isolated to the STC board.
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.55\textwidth, frame]{images/esp32 + nrf2401.jpeg}
+\caption{ESP32-DevKitC V4 on a breadboard with the NRF24L01 module wired via jumper cables.}
+\label{fig:esp32-nrf}
+\end{figure}
+
+The next step was to replace one of the ESP32 receivers with the STC89C52RC board (Figure~\ref{fig:stc-board}). The NRF24L01 chip was inserted into the STC breakout board and wired via bit-banged SPI on Port~1 (CE on P1.2, CSN on P1.3, SCK on P1.7, MOSI on P1.1, MISO on P1.6, with 470\,$\Omega$ series resistors). The ESP32 continued transmitting its counter packets. Initial attempts showed no indication of reception on the STC side. Online suggestions pointed to a missing decoupling capacitor on the NRF24L01 supply; a 47\,$\mu$F capacitor was soldered in with a mediocre setup, but communication still failed. To rule out the ESP32 side, a second ESP32 and breakout board were used to confirm that the radio link worked between two ESP32s. The problem was therefore isolated to the STC board.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.55\textwidth, frame]{images/stc board + components.jpeg}
+\caption{STC89C52RC breakout board with LCD1602 display and NRF24L01 module connected.}
+\label{fig:stc-board}
+\end{figure}
 
 An LCD1602 screen was connected to the STC board (8-bit data on P0, control lines on P2) to provide real-time debugging output. The firmware was modified to display NRF24L01 register values on the LCD after initialization. This revealed that certain register writes were being silently dropped. The channel register (\texttt{RF\_CH\,=\,108}) remained at its default value despite being written. Adding a 5\,ms delay before the configuration sequence allowed the first write to succeed. A second dropped register (auto-acknowledgement disable, \texttt{EN\_AA\,=\,0}) was fixed by inserting a dummy \texttt{STATUS} register read before the configuration writes, effectively waking the SPI bus. With both fixes in place, the STC began receiving packets from the ESP32, and the 47\,$\mu$F capacitor was confirmed to be unnecessary. Bidirectional communication was then verified by temporarily converting the STC to a transmitter.
 
 With radio communication working, the pinging ESP32 firmware was replaced with a keyboard forwarder (\texttt{keyboard\_tx.cpp}). Instead of transmitting a counter, the ESP32 now reads characters from its UART, batches them over a 20\,ms window, and packages them into a 32-byte payload: byte~0 holds the character count (1 to 30), bytes~1 to~30 hold the ASCII data, and byte~31 carries a sequence number. Each packet is transmitted 5 times with 1\,500\,$\mu$s spacing to compensate for the unreliability of clone NRF24L01 modules. On the STC side, the receiver firmware was rewritten to interpret incoming characters and render them on the LCD with cursor management, supporting backspace, enter (line break or clear), and Ctrl+L (full clear). A sequence-number-based deduplication mechanism discards repeated copies of the same packet. The Python keyboard client was extended to display ESP32 debug output and buffer rapid keystrokes.
+
+The final system architecture is shown in Figure~\ref{fig:arch}.
+
+\begin{figure}[ht]
+\centering
+\fbox{\begin{tikzpicture}[
+    node distance=0.8cm and 1.4cm,
+    box/.style={draw, rounded corners, minimum height=1cm, minimum width=2.2cm, align=center, font=\small},
+    chip/.style={draw, rounded corners, minimum height=0.9cm, minimum width=1.8cm, align=center, font=\small, fill=gray!15},
+    group/.style={draw, dashed, rounded corners, inner sep=0.4cm},
+    arr/.style={-{Stealth[length=2.5mm]}, thick},
+    lbl/.style={font=\scriptsize, midway},
+]
+
+% Top row: PC side
+\node[box] (pc) {PC};
+\node[box, right=of pc] (client) {Keyboard Client};
+\node[font=\scriptsize, below=0.05cm of client] (pysub) {(Python)};
+\node[box, right=2cm of client] (esp) {ESP32};
+\node[chip, right=of esp] (nrf1) {NRF24L01};
+
+% Bottom row: STC side (right to left)
+\node[chip, below=1.8cm of nrf1] (nrf2) {NRF24L01};
+\node[box, left=of nrf2] (stc) {STC89C52RC};
+\node[box, left=of stc] (lcd) {LCD1602};
+
+% Group boxes
+\node[group, fit=(esp)(nrf1), label={[font=\scriptsize]above:ESP32 Board}] (espgroup) {};
+\node[group, fit=(stc)(nrf2)(lcd), label={[font=\scriptsize]below:STC89C52RC Board}] (stcgroup) {};
+
+% Arrows
+\draw[arr] (pc) -- (client);
+\draw[arr] (client) -- node[lbl, above] {UART} (espgroup.west |- esp);
+\draw[arr] (esp) -- node[lbl, above] {SPI} (nrf1);
+\draw[arr, densely dashed] (nrf1) -- node[lbl, right] {2.4\,GHz} (nrf2);
+\draw[arr] (nrf2) -- node[lbl, above] {SPI} (stc);
+\draw[arr] (stc) -- (lcd);
+
+\end{tikzpicture}}
+\caption{System architecture: PC keystrokes are forwarded through the ESP32 and NRF24L01 radio link to the STC89C52RC, which displays them on the LCD.}
+\label{fig:arch}
+\end{figure}
 
 The ESP32 uses its hardware VSPI interface: CE on GPIO\,4, CSN on GPIO\,5, SCK on GPIO\,18, MOSI on GPIO\,23, MISO on GPIO\,19, with VCC supplied at 5\,V through the breakout board's on-board regulator. The STC89C52RC uses bit-banged SPI on Port~1: CE on P1.2, CSN on P1.3, SCK on P1.7, MOSI on P1.1, MISO on P1.6, all through 470\,$\Omega$ series resistors for voltage protection. The LCD1602 occupies Port~0 (data bus) and three pins on Port~2 (EN on P2.7, RS on P2.6, RW on P2.5).
 
@@ -84,20 +143,29 @@ This project demonstrated that a resource-constrained 8051 microcontroller can b
 
 \end{thebibliography}
 
+\newpage
+
 \appendix
 
 \section{Pinout Diagrams}
 
-\subsection{NRF24L01 Module Pinout}
-
-% TODO: Insert NRF24L01 pinout diagram here
-
-\subsection{ESP32-DevKitC V4 Pinout}
-
-% TODO: Insert ESP32 pinout diagram here
-
-\subsection{STC89C52RC Breakout Board Pinout}
-
-% TODO: Insert STC89C52RC pinout diagram here
+\vspace{1cm}
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.28\textwidth, frame]{images/nrf2401 pinout.png}
+\caption{NRF24L01 module pinout.}
+\end{figure}
+\vspace{0.3cm}
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.28\textwidth, frame]{images/stc nrf2401 pinout.png}
+\caption{STC89C52RC breakout board pinout.}
+\end{figure}
+\vspace{0.3cm}
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.65\textwidth, frame]{images/v4 pinout.jpg}
+\caption{ESP32-DevKitC V4 pinout.}
+\end{figure}
 
 \end{document}

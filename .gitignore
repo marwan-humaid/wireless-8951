@@ -28,3 +28,5 @@ _nrf24l01_lib/
 *.zip
 docs/
 *.local*
+
+demo/

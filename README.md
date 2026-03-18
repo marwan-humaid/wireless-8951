@@ -5,4 +5,4 @@
 - ESP32
 
 ## Demo
-<video src="demo/video.mp4" controls width="600"></video>
+https://github.com/user-attachments/assets/b3b948dd-c84f-4fd6-990d-abc5db8958de

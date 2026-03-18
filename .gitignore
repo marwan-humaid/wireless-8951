@@ -25,6 +25,10 @@ _nrf24l01_lib/
 # IDE / tooling
 .idea/
 .omc/
+.claude/
+
+# Minted cache
+report/_minted/
 *.zip
 docs/
 *.local*

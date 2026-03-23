@@ -18,6 +18,12 @@ sbit MISO = P1^6;
 char xdata rx_buf[32];
 char addr[] = {0x30, 0x30, 0x30, 0x30, 0x31};
 
+/* Ring buffer: holds received packets for main loop to process */
+#define PKT_QUEUE_SIZE 8
+char xdata pkt_queue[PKT_QUEUE_SIZE][32];
+volatile unsigned char pkt_head = 0;  /* ISR writes here */
+volatile unsigned char pkt_tail = 0;  /* main loop reads here */
+
 unsigned char cursor_row;
 unsigned char cursor_col;
 unsigned char last_seq = 0xFF;
@@ -60,15 +66,42 @@ void uart_hex(unsigned char v) {
     uart_send(nibble < 10 ? '0' + nibble : 'A' + nibble - 10);
 }
 
-void uart_dec(unsigned int v) {
-    unsigned char buf[5];
-    unsigned char i = 0;
-    if (v == 0) { uart_send('0'); return; }
-    while (v > 0) {
-        buf[i++] = '0' + (v % 10);
-        v /= 10;
+/*
+ * Timer 0 ISR: polls NRF24L01 and drains FIFO into ring buffer.
+ * Runs every ~5ms (11.0592 MHz, mode 1, reload 0xEE00).
+ * Keeps CE HIGH throughout; SPI reads don't disturb RX mode.
+ */
+void timer0_isr(void) interrupt 1 {
+    unsigned char next;
+    /* Reload timer (mode 1, no auto-reload) */
+    TH0 = 0xEE;
+    TL0 = 0x00;
+
+    if (!(_nrf_get_reg(STATUS) & (1<<RX_DR)))
+        return;
+
+    _nrf_set_reg(STATUS, (1<<RX_DR));
+
+    while (!(_nrf_get_reg(FIFO_STATUS) & (1<<RX_EMPTY))) {
+        next = (pkt_head + 1) % PKT_QUEUE_SIZE;
+        if (next == pkt_tail) {
+            /* Queue full, flush remaining to prevent stale data */
+            CSN = 0; { _nrf_rw(FLUSH_RX); } CSN = 1;
+            break;
+        }
+        _nrf_read_rx_payload(pkt_queue[pkt_head]);
+        pkt_head = next;
     }
-    while (i > 0) uart_send(buf[--i]);
+}
+
+void timer0_init(void) {
+    TMOD &= 0xF0;
+    TMOD |= 0x01;  /* Timer 0 mode 1 (16-bit) */
+    TH0 = 0xEE;    /* ~5ms at 11.0592 MHz */
+    TL0 = 0x00;
+    ET0 = 1;        /* Enable Timer 0 interrupt */
+    TR0 = 1;        /* Start Timer 0 */
+    EA = 1;         /* Global interrupt enable */
 }
 
 void cursor_advance(void) {
@@ -122,6 +155,7 @@ void process_char(unsigned char ch) {
 
 void main(void) {
     unsigned char i, count;
+    char xdata *pkt;
 
     uart_init();
     lcd_init();
@@ -156,36 +190,38 @@ void main(void) {
     _nrf_set_reg(STATUS, (1<<RX_DR));
     CE = 1;
 
-    while (1) {
-        if (_nrf_get_reg(STATUS) & (1<<RX_DR)) {
-            _nrf_set_reg(STATUS, (1<<RX_DR));
+    /* Start timer interrupt to poll NRF24L01 */
+    timer0_init();
 
-            /* Check FIFO before reading (empty FIFO returns garbage) */
-            while (!(_nrf_get_reg(FIFO_STATUS) & (1<<RX_EMPTY))) {
-                _nrf_read_rx_payload(rx_buf);
-                pkt_count++;
-                count = (unsigned char)rx_buf[0];
-                uart_print("PKT seq=");
-                uart_hex((unsigned char)rx_buf[31]);
-                uart_print(" cnt=");
-                uart_hex(count);
-                if ((unsigned char)rx_buf[31] == last_seq) {
-                    dup_count++;
-                    uart_print(" DUP\r\n");
-                    continue;
-                }
-                last_seq = (unsigned char)rx_buf[31];
-                if (count == 0 || count > 30) {
-                    uart_print(" BAD\r\n");
-                    continue;
-                }
-                uart_print(" data=");
-                for (i = 0; i < count; i++) {
-                    uart_send((unsigned char)rx_buf[i + 1]);
-                    process_char((unsigned char)rx_buf[i + 1]);
-                }
-                uart_print("\r\n");
+    while (1) {
+        /* Process packets from ring buffer */
+        while (pkt_tail != pkt_head) {
+            pkt = pkt_queue[pkt_tail];
+            pkt_tail = (pkt_tail + 1) % PKT_QUEUE_SIZE;
+            pkt_count++;
+            count = (unsigned char)pkt[0];
+
+            uart_print("PKT seq=");
+            uart_hex((unsigned char)pkt[31]);
+            uart_print(" cnt=");
+            uart_hex(count);
+
+            if ((unsigned char)pkt[31] == last_seq) {
+                dup_count++;
+                uart_print(" DUP\r\n");
+                continue;
             }
+            last_seq = (unsigned char)pkt[31];
+            if (count == 0 || count > 30) {
+                uart_print(" BAD\r\n");
+                continue;
+            }
+            uart_print(" data=");
+            for (i = 0; i < count; i++) {
+                uart_send((unsigned char)pkt[i + 1]);
+                process_char((unsigned char)pkt[i + 1]);
+            }
+            uart_print("\r\n");
         }
     }
 }

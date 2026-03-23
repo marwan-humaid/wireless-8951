@@ -5,8 +5,8 @@
 
 #define CE_PIN 4
 #define CSN_PIN 5
-#define MAX_RETRIES 10
-#define ACK_TIMEOUT_MS 15
+#define MAX_RETRIES 15
+#define ACK_TIMEOUT_MS 50
 
 RF24 radio(CE_PIN, CSN_PIN);
 const byte address[5] = {0x30, 0x30, 0x30, 0x30, 0x31};

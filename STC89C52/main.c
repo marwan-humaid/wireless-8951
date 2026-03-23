@@ -221,34 +221,27 @@ void main(void) {
             /* Skip ACK packets that leaked into our RX */
             if (count == 0xFF) continue;
 
-            uart_print("PKT seq=");
-            uart_hex(seq);
-            uart_print(" cnt=");
-            uart_hex(count);
+            if (count == 0 || count > 30) continue;
 
+            /* ACK immediately, before any UART/LCD work */
             if (seq == last_seq) {
                 dup_count++;
-                uart_print(" DUP\r\n");
-                /* ACK duplicates too (ESP may have missed our first ACK) */
                 send_ack(seq);
                 continue;
             }
             last_seq = seq;
+            send_ack(seq);
 
-            if (count == 0 || count > 30) {
-                uart_print(" BAD\r\n");
-                continue;
-            }
-
+            uart_print("PKT seq=");
+            uart_hex(seq);
+            uart_print(" cnt=");
+            uart_hex(count);
             uart_print(" data=");
             for (i = 0; i < count; i++) {
                 uart_send((unsigned char)pkt[i + 1]);
                 process_char((unsigned char)pkt[i + 1]);
             }
             uart_print("\r\n");
-
-            /* Send ACK */
-            send_ack(seq);
         }
     }
 }

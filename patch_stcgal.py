@@ -9,6 +9,7 @@ Run once after installing stcgal:
 """
 
 import importlib.util
+import re
 import sys
 
 spec = importlib.util.find_spec("stcgal.protocols")
@@ -21,46 +22,43 @@ path = spec.origin
 with open(path, "r") as f:
     src = f.read()
 
-# The full original (unpatched) block in reset_device():
-#   assert pin -> sleep -> deassert pin
-ORIGINAL = '''\
-            if resetpin == "rts":
-                self.ser.setRTS(True)
-            else:
-                self.ser.setDTR(True)
+# Match the reset_device pattern regardless of whitespace style (spaces or tabs).
+# Original: setRTS(True)...setDTR(True)...sleep...setRTS(False)...setDTR(False)
+# Patched:  setRTS(False)...setDTR(False)...sleep...setRTS(True)...setDTR(True)
 
-            time.sleep(0.25)
+PATTERN = re.compile(
+    r'(if resetpin == "rts":\s+self\.ser\.setRTS\()(True)'
+    r'(\)\s+else:\s+self\.ser\.setDTR\()(True)'
+    r'(\)[\s\S]*?time\.sleep\(0\.25\)[\s\S]*?'
+    r'if resetpin == "rts":\s+self\.ser\.setRTS\()(False)'
+    r'(\)\s+else:\s+self\.ser\.setDTR\()(False)(\))'
+)
 
-            if resetpin == "rts":
-                self.ser.setRTS(False)
-            else:
-                self.ser.setDTR(False)'''
+PATCHED_CHECK = re.compile(
+    r'if resetpin == "rts":\s+self\.ser\.setRTS\(False\)'
+    r'\s+else:\s+self\.ser\.setDTR\(False\)'
+    r'[\s\S]*?time\.sleep\(0\.25\)[\s\S]*?'
+    r'if resetpin == "rts":\s+self\.ser\.setRTS\(True\)'
+    r'\s+else:\s+self\.ser\.setDTR\(True\)'
+)
 
-# The patched (inverted) block:
-#   deassert pin -> sleep -> assert pin
-PATCHED = '''\
-            if resetpin == "rts":
-                self.ser.setRTS(False)
-            else:
-                self.ser.setDTR(False)
-
-            time.sleep(0.25)
-
-            if resetpin == "rts":
-                self.ser.setRTS(True)
-            else:
-                self.ser.setDTR(True)'''
-
-if PATCHED in src:
+if PATCHED_CHECK.search(src):
     print("Already patched.")
     sys.exit(0)
 
-if ORIGINAL not in src:
+match = PATTERN.search(src)
+if not match:
     print("ERROR: Could not find expected code block in", path)
     print("stcgal version may be incompatible.")
     sys.exit(1)
 
-src = src.replace(ORIGINAL, PATCHED, 1)
+# Swap True<->False in the matched groups
+src = src[:match.start()] + (
+    match.group(1) + "False" +
+    match.group(3) + "False" +
+    match.group(5) + "True" +
+    match.group(7) + "True" + match.group(9)
+) + src[match.end():]
 
 with open(path, "w") as f:
     f.write(src)

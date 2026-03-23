@@ -16,13 +16,14 @@ sbit MISO = P1^6;
 #include "nrf24l01.h"
 
 char xdata rx_buf[32];
+char xdata ack_buf[32];
 char addr[] = {0x30, 0x30, 0x30, 0x30, 0x31};
 
 /* Ring buffer: holds received packets for main loop to process */
 #define PKT_QUEUE_SIZE 8
 char xdata pkt_queue[PKT_QUEUE_SIZE][32];
-volatile unsigned char pkt_head = 0;  /* ISR writes here */
-volatile unsigned char pkt_tail = 0;  /* main loop reads here */
+volatile unsigned char pkt_head = 0;
+volatile unsigned char pkt_tail = 0;
 
 unsigned char cursor_row;
 unsigned char cursor_col;
@@ -38,12 +39,12 @@ void delay_ms(unsigned int ms) {
 
 /* UART at 57600 baud (11.0592 MHz crystal, SMOD=1, TH1=0xFF) */
 void uart_init(void) {
-    SCON = 0x50;   /* mode 1, REN=1 */
+    SCON = 0x50;
     TMOD &= 0x0F;
-    TMOD |= 0x20;  /* Timer 1 mode 2 (auto-reload) */
-    TH1 = 0xFF;    /* 57600 baud with SMOD=1 */
+    TMOD |= 0x20;
+    TH1 = 0xFF;
     TL1 = 0xFF;
-    PCON |= 0x80;  /* SMOD = 1 */
+    PCON |= 0x80;
     TR1 = 1;
 }
 
@@ -69,11 +70,9 @@ void uart_hex(unsigned char v) {
 /*
  * Timer 0 ISR: polls NRF24L01 and drains FIFO into ring buffer.
  * Runs every ~5ms (11.0592 MHz, mode 1, reload 0xEE00).
- * Keeps CE HIGH throughout; SPI reads don't disturb RX mode.
  */
 void timer0_isr(void) interrupt 1 {
     unsigned char next;
-    /* Reload timer (mode 1, no auto-reload) */
     TH0 = 0xEE;
     TL0 = 0x00;
 
@@ -85,7 +84,6 @@ void timer0_isr(void) interrupt 1 {
     while (!(_nrf_get_reg(FIFO_STATUS) & (1<<RX_EMPTY))) {
         next = (pkt_head + 1) % PKT_QUEUE_SIZE;
         if (next == pkt_tail) {
-            /* Queue full, flush remaining to prevent stale data */
             CSN = 0; { _nrf_rw(FLUSH_RX); } CSN = 1;
             break;
         }
@@ -96,12 +94,36 @@ void timer0_isr(void) interrupt 1 {
 
 void timer0_init(void) {
     TMOD &= 0xF0;
-    TMOD |= 0x01;  /* Timer 0 mode 1 (16-bit) */
-    TH0 = 0xEE;    /* ~5ms at 11.0592 MHz */
+    TMOD |= 0x01;
+    TH0 = 0xEE;
     TL0 = 0x00;
-    ET0 = 1;        /* Enable Timer 0 interrupt */
-    TR0 = 1;        /* Start Timer 0 */
-    EA = 1;         /* Global interrupt enable */
+    ET0 = 1;
+    TR0 = 1;
+    EA = 1;
+}
+
+/* Send ACK packet for a given sequence number */
+void send_ack(unsigned char seq) {
+    unsigned char i;
+    /* Disable timer ISR while we use the radio for TX */
+    ET0 = 0;
+    CE = 0;
+
+    /* Build ACK: byte 0 = 0xFF marker, byte 31 = seq */
+    for (i = 0; i < 32; i++) ack_buf[i] = 0;
+    ack_buf[0] = 0xFF;
+    ack_buf[31] = seq;
+
+    nrf_send(addr, ack_buf);
+
+    /* Return to RX mode */
+    _nrf_set_reg_mb(RX_ADDR_P0, addr, 5);
+    _nrf_set_reg(CONFIG, NRF_CONFIG|((1<<PWR_UP)|(1<<PRIM_RX)));
+    CSN = 0; { _nrf_rw(FLUSH_RX); } CSN = 1;
+    _nrf_set_reg(STATUS, (1<<RX_DR));
+    CE = 1;
+
+    ET0 = 1;
 }
 
 void cursor_advance(void) {
@@ -118,7 +140,6 @@ void cursor_advance(void) {
 
 void process_char(unsigned char ch) {
     if (ch == 0x08) {
-        /* backspace */
         if (cursor_col > 0) {
             cursor_col--;
         } else if (cursor_row > 0) {
@@ -129,7 +150,6 @@ void process_char(unsigned char ch) {
         lcd_write_char(' ');
         lcd_set_cursor(cursor_row, cursor_col);
     } else if (ch == 0x0D) {
-        /* enter: line 2 or clear */
         if (cursor_row == 0) {
             cursor_row = 1;
             cursor_col = 0;
@@ -142,19 +162,17 @@ void process_char(unsigned char ch) {
             cursor_col = 0;
         }
     } else if (ch == 0x0C) {
-        /* Ctrl+L: clear */
         lcd_clear();
         cursor_row = 0;
         cursor_col = 0;
     } else if (ch >= 0x20 && ch <= 0x7E) {
-        /* printable ASCII */
         lcd_write_char(ch);
         cursor_advance();
     }
 }
 
 void main(void) {
-    unsigned char i, count;
+    unsigned char i, count, seq;
     char xdata *pkt;
 
     uart_init();
@@ -183,45 +201,54 @@ void main(void) {
     cursor_row = 0;
     cursor_col = 0;
 
-    /* Enter RX mode and stay there */
+    /* Enter RX mode */
     _nrf_set_reg_mb(RX_ADDR_P0, addr, 5);
     _nrf_set_reg(CONFIG, NRF_CONFIG|((1<<PWR_UP)|(1<<PRIM_RX)));
     CSN = 0; { _nrf_rw(FLUSH_RX); } CSN = 1;
     _nrf_set_reg(STATUS, (1<<RX_DR));
     CE = 1;
 
-    /* Start timer interrupt to poll NRF24L01 */
     timer0_init();
 
     while (1) {
-        /* Process packets from ring buffer */
         while (pkt_tail != pkt_head) {
             pkt = pkt_queue[pkt_tail];
             pkt_tail = (pkt_tail + 1) % PKT_QUEUE_SIZE;
             pkt_count++;
             count = (unsigned char)pkt[0];
+            seq = (unsigned char)pkt[31];
+
+            /* Skip ACK packets that leaked into our RX */
+            if (count == 0xFF) continue;
 
             uart_print("PKT seq=");
-            uart_hex((unsigned char)pkt[31]);
+            uart_hex(seq);
             uart_print(" cnt=");
             uart_hex(count);
 
-            if ((unsigned char)pkt[31] == last_seq) {
+            if (seq == last_seq) {
                 dup_count++;
                 uart_print(" DUP\r\n");
+                /* ACK duplicates too (ESP may have missed our first ACK) */
+                send_ack(seq);
                 continue;
             }
-            last_seq = (unsigned char)pkt[31];
+            last_seq = seq;
+
             if (count == 0 || count > 30) {
                 uart_print(" BAD\r\n");
                 continue;
             }
+
             uart_print(" data=");
             for (i = 0; i < count; i++) {
                 uart_send((unsigned char)pkt[i + 1]);
                 process_char((unsigned char)pkt[i + 1]);
             }
             uart_print("\r\n");
+
+            /* Send ACK */
+            send_ack(seq);
         }
     }
 }

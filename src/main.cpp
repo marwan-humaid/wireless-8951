@@ -5,10 +5,13 @@
 
 #define CE_PIN 4
 #define CSN_PIN 5
+#define MAX_RETRIES 10
+#define ACK_TIMEOUT_MS 15
 
 RF24 radio(CE_PIN, CSN_PIN);
 const byte address[5] = {0x30, 0x30, 0x30, 0x30, 0x31};
 char tx_buf[32];
+char ack_buf[32];
 uint8_t seq_num = 0;
 
 void setup() {
@@ -31,9 +34,38 @@ void setup() {
   radio.setAutoAck(false);
 
   radio.openWritingPipe(address);
+  radio.openReadingPipe(1, address);
   radio.stopListening();
 
-  Serial.println("Keyboard TX ready. Send chars over serial.");
+  Serial.println("Keyboard TX ready (ACK mode).");
+}
+
+/* Send packet and wait for ACK, retransmit up to MAX_RETRIES times */
+bool send_with_ack(char *buf) {
+  for (uint8_t attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    /* TX */
+    radio.stopListening();
+    radio.write(buf, 32);
+
+    /* Switch to RX and wait for ACK */
+    radio.startListening();
+    unsigned long start = millis();
+    while (millis() - start < ACK_TIMEOUT_MS) {
+      if (radio.available()) {
+        radio.read(&ack_buf, 32);
+        if ((uint8_t)ack_buf[0] == 0xFF &&
+            (uint8_t)ack_buf[31] == (uint8_t)buf[31]) {
+          radio.stopListening();
+          if (attempt > 0)
+            Serial.printf("  ACK after %d retries\n", attempt);
+          return true;
+        }
+      }
+    }
+    /* No ACK, retry */
+  }
+  radio.stopListening();
+  return false;
 }
 
 void loop() {
@@ -46,7 +78,7 @@ void loop() {
       count++;
     }
     tx_buf[0] = count;
-    tx_buf[31] = seq_num;  /* sequence number for dedup */
+    tx_buf[31] = seq_num;
 
     Serial.printf("TX seq=%02X cnt=%d data=", seq_num, count);
     for (uint8_t j = 0; j < count; j++) {
@@ -56,10 +88,9 @@ void loop() {
     }
     Serial.println();
 
-    /* Send 5 times for redundancy (no auto-ack, clone modules) */
-    for (uint8_t r = 0; r < 5; r++) {
-      radio.write(&tx_buf, 32);
-      if (r < 4) delayMicroseconds(1500);
+    if (!send_with_ack(tx_buf)) {
+      Serial.printf("  FAILED seq=%02X (no ACK after %d tries)\n",
+                     seq_num, MAX_RETRIES);
     }
     seq_num++;
   }

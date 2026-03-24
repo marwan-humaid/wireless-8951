@@ -67,54 +67,6 @@ void uart_hex(unsigned char v) {
     uart_send(nibble < 10 ? '0' + nibble : 'A' + nibble - 10);
 }
 
-/* Dump key NRF24L01 registers via UART for diagnostics.
- * Must be called with ET0=0 (timer ISR disabled). */
-void nrf_dump_regs(char *label) {
-    char xdata addr_buf[5];
-    unsigned char i;
-
-    uart_print("NRF[");
-    uart_print(label);
-    uart_print("] ");
-
-    uart_print("CFG=");
-    uart_hex(_nrf_get_reg(CONFIG));
-
-    uart_print(" ST=");
-    uart_hex(_nrf_get_reg(STATUS));
-
-    uart_print(" FIFO=");
-    uart_hex(_nrf_get_reg(FIFO_STATUS));
-
-    uart_print(" CH=");
-    uart_hex(_nrf_get_reg(RF_CH));
-
-    uart_print(" RF=");
-    uart_hex(_nrf_get_reg(RF_SETUP));
-
-    uart_print(" AA=");
-    uart_hex(_nrf_get_reg(EN_AA));
-
-    uart_print(" RXEN=");
-    uart_hex(_nrf_get_reg(EN_RXADDR));
-
-    uart_print(" PW0=");
-    uart_hex(_nrf_get_reg(RX_PW_P0));
-
-    uart_print(" RXA=");
-    _nrf_get_reg_mb(RX_ADDR_P0, addr_buf, 5);
-    for (i = 0; i < 5; i++) uart_hex(addr_buf[i]);
-
-    uart_print(" TXA=");
-    _nrf_get_reg_mb(TX_ADDR, addr_buf, 5);
-    for (i = 0; i < 5; i++) uart_hex(addr_buf[i]);
-
-    uart_print(" CE=");
-    uart_send(CE ? '1' : '0');
-
-    uart_print("\r\n");
-}
-
 /*
  * Timer 0 ISR: polls NRF24L01 and drains FIFO into ring buffer.
  * Runs every ~5ms (11.0592 MHz, mode 1, reload 0xEE00).
@@ -151,29 +103,18 @@ void timer0_init(void) {
 }
 
 /* Send ACK packet for a given sequence number */
-unsigned char ack_count = 0;
 void send_ack(unsigned char seq) {
     unsigned char i;
-    bool ack_ok;
     /* Disable timer ISR while we use the radio for TX */
     ET0 = 0;
     CE = 0;
-
-    nrf_dump_regs("PRE-TX");
 
     /* Build ACK: byte 0 = 0xFF marker, byte 31 = seq */
     for (i = 0; i < 32; i++) ack_buf[i] = 0;
     ack_buf[0] = 0xFF;
     ack_buf[31] = seq;
 
-    ack_ok = nrf_send(addr, ack_buf);
-
-    uart_print("ACK-TX seq=");
-    uart_hex(seq);
-    uart_print(ack_ok ? " OK" : " FAIL");
-    uart_print("\r\n");
-
-    nrf_dump_regs("POST-TX");
+    nrf_send(addr, ack_buf);
 
     /* Return to RX mode */
     _nrf_set_reg_mb(RX_ADDR_P0, addr, 5);
@@ -182,9 +123,6 @@ void send_ack(unsigned char seq) {
     _nrf_set_reg(STATUS, (1<<RX_DR));
     CE = 1;
 
-    nrf_dump_regs("POST-RX");
-
-    ack_count++;
     ET0 = 1;
 }
 
@@ -269,8 +207,6 @@ void main(void) {
     CSN = 0; { _nrf_rw(FLUSH_RX); } CSN = 1;
     _nrf_set_reg(STATUS, (1<<RX_DR));
     CE = 1;
-
-    nrf_dump_regs("INIT");
 
     timer0_init();
 

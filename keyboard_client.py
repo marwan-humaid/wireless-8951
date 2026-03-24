@@ -5,16 +5,19 @@ import time
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python keyboard_client.py COMxx")
+        print("Usage: python keyboard_client.py COMxx [--debug]")
         sys.exit(1)
 
     port = sys.argv[1]
+    debug = '--debug' in sys.argv
     ser = serial.Serial(port, 115200, timeout=1)
     print(f"Connected to {port}. Type to send to LCD.")
     print("  Enter = new line / clear")
     print("  Backspace = delete")
     print("  Ctrl+L = clear screen")
     print("  Ctrl+C = quit")
+    if debug:
+        print("  Debug output enabled")
     print()
 
     try:
@@ -22,7 +25,7 @@ def main():
             # Read and display ESP32 debug output
             if ser.in_waiting:
                 line = ser.readline().decode('ascii', errors='replace').rstrip()
-                if line:
+                if line and debug:
                     print(f"\n  [ESP32] {line}", end='', flush=True)
 
             if msvcrt.kbhit():

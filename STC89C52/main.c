@@ -12,6 +12,9 @@ sbit SCK  = P1^7;
 sbit MOSI = P1^1;
 sbit MISO = P1^6;
 
+/* Status LED on P2.0 */
+sbit LED = P2^0;
+
 #include "lcd1602.h"
 #include "nrf24l01.h"
 
@@ -30,6 +33,9 @@ unsigned char cursor_col;
 unsigned char last_seq = 0xFF;
 unsigned int pkt_count = 0;
 unsigned int dup_count = 0;
+
+/* ISR counters */
+volatile unsigned char led_counter = 0;
 
 void delay_ms(unsigned int ms) {
     unsigned int i, j;
@@ -70,11 +76,19 @@ void uart_hex(unsigned char v) {
 /*
  * Timer 0 ISR: polls NRF24L01 and drains FIFO into ring buffer.
  * Runs every ~5ms (11.0592 MHz, mode 1, reload 0xEE00).
+ * Also blinks LED every ~500ms (100 ticks).
  */
 void timer0_isr(void) interrupt 1 {
     unsigned char next;
     TH0 = 0xEE;
     TL0 = 0x00;
+
+    /* Blink LED ~1Hz (toggle every 100 * 5ms = 500ms) */
+    led_counter++;
+    if (led_counter >= 100) {
+        led_counter = 0;
+        LED = !LED;
+    }
 
     if (!(_nrf_get_reg(STATUS) & (1<<RX_DR)))
         return;
@@ -175,6 +189,7 @@ void main(void) {
     unsigned char i, count, seq;
     char xdata *pkt;
 
+    LED = 0;
     uart_init();
     lcd_init();
     delay_ms(100);
@@ -188,7 +203,7 @@ void main(void) {
         lcd_write_string("NRF Init FAILED!");
         lcd_set_cursor(1, 0);
         lcd_write_string("Check wiring    ");
-        while (1) ;
+        while (1) { LED = !LED; delay_ms(100); }
     }
 
     lcd_set_cursor(0, 0);

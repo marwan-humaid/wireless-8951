@@ -7,10 +7,10 @@ Wireless communication between an STC89C52RC (8051) and an ESP32 using NRF24L01 
 - ESP32-DevKitC V4
 
 ## Demo
-https://github.com/user-attachments/assets/df030393-71dc-4c5a-94b4-641df4fe7c1f
+https://github.com/user-attachments/assets/0a007172-0885-4c4d-a260-0e62a9290c43
 
 ## Stress Test
-https://github.com/user-attachments/assets/01c4b866-cc2d-494c-893d-67a41dd353ce
+https://github.com/user-attachments/assets/19db03fd-af63-4d8c-a478-242b4ed02097
 
 ## Prerequisites
 
